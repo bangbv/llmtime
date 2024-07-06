@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import pickle
 import matplotlib.pyplot as plt
 import pandas as pd
-from data.small_context import get_datasets
+from data.small_context import get_datasets_2
 from data.serialize import SerializerSettings
 from models.validation_likelihood_tuning import get_autotuned_predictions_data
 from models.utils import grid_iter

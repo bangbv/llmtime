@@ -89,6 +89,23 @@ def get_datasets(n=-1,testfrac=0.2):
             break
     return dict(zip(datasets,datas))
 
+# limit datasets to 1
+def get_datasets_2(n=-1,testfrac=0.2):
+    datasets = [
+        'AirPassengersDataset',
+    ]
+    datas = []
+    for i,dsname in enumerate(datasets):
+        series = get_dataset(dsname)
+        splitpoint = int(len(series)*(1-testfrac))
+        
+        train = series.iloc[:splitpoint]
+        test = series.iloc[splitpoint:]
+        datas.append((train,test))
+        if i+1==n:
+            break
+    return dict(zip(datasets,datas))
+
 def get_memorization_datasets(n=-1,testfrac=0.15, predict_steps=30):
     datasets = [
         'IstanbulTraffic',
