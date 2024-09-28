@@ -17,21 +17,21 @@ openai.api_key = os.environ['OPENAI_API_KEY']
 # openai.api_base = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
 
 # Specify the hyperparameter grid for each model
-gpt4_hypers = dict(
-    alpha=0.3,
-    basic=True,
+llama_hypers = dict(
     temp=1.0,
-    top_p=0.8,
-    settings=SerializerSettings(base=10, prec=3, signed=True, time_sep=', ', bit_sep='', minus_sign='-')
+    alpha=0.99,
+    beta=0.3,
+    basic=False,
+    settings=SerializerSettings(base=10, prec=3, time_sep=',', bit_sep='', plus_sign='', minus_sign='-', signed=True),
 )
 
 model_hypers = {
-    'gpt-4': {'model': 'gpt-4', **gpt4_hypers},
+    'llama-7b': {'model': 'llama-7b', **llama_hypers},
 }
 
 # Specify the function to get predictions for each model
 model_predict_fns = {
-    'gpt-4': get_llmtime_predictions_data,
+    'llama-7b': get_llmtime_predictions_data,
 }
 
 def is_gpt(model):
@@ -52,7 +52,7 @@ for dsname,data in datasets.items():
     
     # N-HiTS, TCN and N-BEATS require training and can be slow. Skip them if you want quick results.
     
-    for model in ['text-davinci-003', 'gpt-4', 'gp', 'arima', 'N-HiTS', 'TCN', 'N-BEATS']:
+    for model in ['llama-70b']:
         if model in out_dict:
             print(f"Skipping {dsname} {model}")
             continue
