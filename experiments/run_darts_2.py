@@ -52,7 +52,7 @@ for dsname,data in datasets.items():
     
     # N-HiTS, TCN and N-BEATS require training and can be slow. Skip them if you want quick results.
     
-    for model in ['llama-70b']:
+    for model in ['llama-7b']:
         if model in out_dict:
             print(f"Skipping {dsname} {model}")
             continue
