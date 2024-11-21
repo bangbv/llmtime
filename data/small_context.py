@@ -91,13 +91,19 @@ def get_datasets(n=-1,testfrac=0.2):
 
 # limit datasets to 1
 def get_datasets_2(n=-1,testfrac=0.2):
+    print(f"get_datasets_2")
     datasets = [
         'AirPassengersDataset',
     ]
     datas = []
     for i,dsname in enumerate(datasets):
         series = get_dataset(dsname)
+        print(f"series: {series.size}")
+        series = series.iloc[:10]
+        print(f"new series: {series.size}")
+
         splitpoint = int(len(series)*(1-testfrac))
+        print(f"splitpoint: {splitpoint}")
         
         train = series.iloc[:splitpoint]
         test = series.iloc[splitpoint:]

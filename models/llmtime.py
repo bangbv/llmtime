@@ -91,6 +91,7 @@ def truncate_input(input_arr, input_str, settings, model, steps):
         return input_arr, input_str
 
 def handle_prediction(pred, expected_length, strict=False):
+    print(f"handle_prediction")
     """
     Process the output from LLM after deserialization, which may be too long or too short, or None if deserialization failed on the first prediction step.
 
@@ -128,6 +129,7 @@ def generate_predictions(
     max_concurrent=10,
     **kwargs
 ):
+    print(f"generate_predictions")
     """
     Generate and process text completions from a language model for input time series.
 
@@ -168,7 +170,10 @@ def generate_predictions(
     preds = [[completion_to_pred(completion, scaler.inv_transform) for completion in completions] for completions, scaler in zip(completions_list, scalers)]
     return preds, completions_list, input_strs
 
-def get_llmtime_predictions_data(train, test, model, settings, num_samples=10, temp=0.7, alpha=0.95, beta=0.3, basic=False, parallel=True, **kwargs):
+
+def get_llmtime_predictions_data_2(train, test, model, settings, num_samples=10, temp=0.7, alpha=0.95, beta=0.3,
+                                 basic=False, parallel=True, **kwargs):
+    print(f"get_llmtime_predictions_data")
     """
     Obtain forecasts from an LLM based on training series (history) and evaluate likelihood on test series (true future).
     train and test can be either a single time series or a list of time series.
@@ -191,6 +196,93 @@ def get_llmtime_predictions_data(train, test, model, settings, num_samples=10, t
     """
 
     assert model in completion_fns, f'Invalid model {model}, must be one of {list(completion_fns.keys())}'
+    print(f"completion_fns keys: completion_fns.keys()")
+    completion_fn = completion_fns[model]
+    nll_fn = nll_fns[model] if model in nll_fns else None
+
+    if isinstance(settings, dict):
+        settings = SerializerSettings(**settings)
+    if not isinstance(train, list):
+        # Assume single train/test case
+        train = [train]
+        test = [test]
+
+    for i in range(len(train)):
+        if not isinstance(train[i], pd.Series):
+            train[i] = pd.Series(train[i], index=pd.RangeIndex(len(train[i])))
+            test[i] = pd.Series(test[i], index=pd.RangeIndex(len(train[i]), len(test[i]) + len(train[i])))
+
+    test_len = len(test[0])
+    assert all(len(t) == test_len for t in test), f'All test series must have same length, got {[len(t) for t in test]}'
+
+    # Create a unique scaler for each series
+    scalers = [get_scaler(train[i].values, alpha=alpha, beta=beta, basic=basic) for i in range(len(train))]
+
+    # transform input_arrs
+    input_arrs = [train[i].values for i in range(len(train))]
+    transformed_input_arrs = np.array(
+        [scaler.transform(input_array) for input_array, scaler in zip(input_arrs, scalers)])
+    # serialize input_arrs
+    input_strs = [serialize_arr(scaled_input_arr, settings) for scaled_input_arr in transformed_input_arrs]
+    # Truncate input_arrs to fit the maximum context length
+    input_arrs, input_strs = zip(
+        *[truncate_input(input_array, input_str, settings, model, test_len) for input_array, input_str in
+          zip(input_arrs, input_strs)])
+
+    steps = test_len
+    samples = None
+    medians = None
+    completions_list = None
+    if num_samples > 0:
+        preds, completions_list, input_strs = generate_predictions(completion_fn, input_strs, steps, settings, scalers,
+                                                                   num_samples=num_samples, temp=temp,
+                                                                   parallel=parallel, **kwargs)
+        samples = [pd.DataFrame(preds[i], columns=test[i].index) for i in range(len(preds))]
+        medians = [sample.median(axis=0) for sample in samples]
+        samples = samples if len(samples) > 1 else samples[0]
+        medians = medians if len(medians) > 1 else medians[0]
+    out_dict = {
+        'samples': samples,
+        'median': medians,
+        'info': {
+            'Method': model,
+        },
+        'completions_list': completions_list,
+        'input_strs': input_strs,
+    }
+    # Compute NLL/D on the true test series conditioned on the (truncated) input series
+    if nll_fn is not None:
+        BPDs = [nll_fn(input_arr=input_arrs[i], target_arr=test[i].values, settings=settings,
+                       transform=scalers[i].transform, count_seps=True, temp=temp) for i in range(len(train))]
+        out_dict['NLL/D'] = np.mean(BPDs)
+    return out_dict
+
+
+def get_llmtime_predictions_data(train, test, model, settings, num_samples=10, temp=0.7, alpha=0.95, beta=0.3, basic=False, parallel=True, **kwargs):
+    print(f"get_llmtime_predictions_data")
+    """
+    Obtain forecasts from an LLM based on training series (history) and evaluate likelihood on test series (true future).
+    train and test can be either a single time series or a list of time series.
+
+    Args:
+        train (array-like or list of array-like): Training time series data (history).
+        test (array-like or list of array-like): Test time series data (true future).
+        model (str): Name of the LLM model to use. Must have a corresponding entry in completion_fns.
+        settings (SerializerSettings or dict): Serialization settings.
+        num_samples (int, optional): Number of samples to return. Defaults to 10.
+        temp (float, optional): Temperature for sampling. Defaults to 0.7.
+        alpha (float, optional): Scaling parameter. Defaults to 0.95.
+        beta (float, optional): Shift parameter. Defaults to 0.3.
+        basic (bool, optional): If True, use the basic version of data scaling. Defaults to False.
+        parallel (bool, optional): If True, run predictions in parallel. Defaults to True.
+        **kwargs: Additional keyword arguments.
+
+    Returns:
+        dict: Dictionary containing predictions, samples, median, NLL/D averaged over each series, and other related information.
+    """
+
+    assert model in completion_fns, f'Invalid model {model}, must be one of {list(completion_fns.keys())}'
+    print(f"completion_fns keys: completion_fns.keys()")
     completion_fn = completion_fns[model]
     nll_fn = nll_fns[model] if model in nll_fns else None
     

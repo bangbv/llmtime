@@ -38,6 +38,7 @@ def get_allowed_ids(strs, model):
     return ids
 
 def gpt_completion_fn(model, input_str, steps, settings, num_samples, temp):
+    print(f"gpt_completion_fn: model: {model}")
     """
     Generate text completions from GPT using OpenAI's API.
 

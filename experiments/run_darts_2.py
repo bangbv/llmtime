@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from data.small_context import get_datasets_2
 from data.serialize import SerializerSettings
-from models.validation_likelihood_tuning import get_autotuned_predictions_data
+from models.validation_likelihood_tuning import get_autotuned_predictions_data_2
 from models.utils import grid_iter
 from models.gaussian_process import get_gp_predictions_data
 from models.darts import get_TCN_predictions_data, get_NHITS_predictions_data, get_NBEATS_predictions_data
@@ -17,6 +17,15 @@ openai.api_key = os.environ['OPENAI_API_KEY']
 # openai.api_base = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
 
 # Specify the hyperparameter grid for each model
+
+gpt4_hypers = dict(
+    alpha=0.3,
+    basic=True,
+    temp=1.0,
+    top_p=0.8,
+    settings=SerializerSettings(base=10, prec=3, signed=True, time_sep=', ', bit_sep='', minus_sign='-')
+)
+
 llama_hypers = dict(
     temp=1.0,
     alpha=0.99,
@@ -27,11 +36,13 @@ llama_hypers = dict(
 
 model_hypers = {
     'llama-7b': {'model': 'llama-7b', **llama_hypers},
+    'gpt-4': {'model': 'gpt-4', **gpt4_hypers},
 }
 
 # Specify the function to get predictions for each model
 model_predict_fns = {
     'llama-7b': get_llmtime_predictions_data,
+    'gpt-4': get_llmtime_predictions_data,
 }
 
 def is_gpt(model):
@@ -41,9 +52,11 @@ def is_gpt(model):
 output_dir = 'outputs/darts'
 os.makedirs(output_dir, exist_ok=True)
 
-datasets = get_datasets_2()
+datasets = get_datasets_2(3, 0.2)
 for dsname,data in datasets.items():
     train, test = data
+    print(f"train size: {len(train)}")
+    print(f"test size: {len(test)}")
     if os.path.exists(f'{output_dir}/{dsname}.pkl'):
         with open(f'{output_dir}/{dsname}.pkl','rb') as f:
             out_dict = pickle.load(f)
@@ -52,7 +65,7 @@ for dsname,data in datasets.items():
     
     # N-HiTS, TCN and N-BEATS require training and can be slow. Skip them if you want quick results.
     
-    for model in ['llama-7b']:
+    for model in ['gpt-4']:
         if model in out_dict:
             print(f"Skipping {dsname} {model}")
             continue
@@ -65,7 +78,7 @@ for dsname,data in datasets.items():
         num_samples = 20 if is_gpt(model) else 100
         print(f"num_samples: {num_samples}")
         try:
-            preds = get_autotuned_predictions_data(train, test, hypers, num_samples, model_predict_fns[model], verbose=False, parallel=parallel)
+            preds = get_autotuned_predictions_data_2(train, test, hypers, num_samples, model_predict_fns[model], verbose=False, parallel=parallel)
             out_dict[model] = preds
         except Exception as e:
             print(f"Failed {dsname} {model}")
