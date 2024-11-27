@@ -8,9 +8,10 @@ from data.small_context import get_datasets_2
 from data.serialize import SerializerSettings
 from models.validation_likelihood_tuning import get_autotuned_predictions_data_2
 from models.utils import grid_iter
+from models.utils import print_debug, my_print
 from models.gaussian_process import get_gp_predictions_data
 from models.darts import get_TCN_predictions_data, get_NHITS_predictions_data, get_NBEATS_predictions_data
-from models.llmtime import get_llmtime_predictions_data
+from models.llmtime import get_llmtime_predictions_data, get_llmtime_predictions_data_2
 from models.darts import get_arima_predictions_data
 import openai
 openai.api_key = os.environ['OPENAI_API_KEY']
@@ -42,7 +43,7 @@ model_hypers = {
 # Specify the function to get predictions for each model
 model_predict_fns = {
     'llama-7b': get_llmtime_predictions_data,
-    'gpt-4': get_llmtime_predictions_data,
+    'gpt-4': get_llmtime_predictions_data_2,
 }
 
 def is_gpt(model):
@@ -52,11 +53,14 @@ def is_gpt(model):
 output_dir = 'outputs/darts'
 os.makedirs(output_dir, exist_ok=True)
 
-datasets = get_datasets_2(3, 0.2)
+datasets = get_datasets_2(3, 0.1)
 for dsname,data in datasets.items():
+    log_debug = True
     train, test = data
-    print(f"train size: {len(train)}")
-    print(f"test size: {len(test)}")
+    print_debug(my_print, "train size", len(train), log_debug)
+    print_debug(my_print, "train data", train, log_debug)
+    print_debug(my_print, "test size", len(test), log_debug)
+    print_debug(my_print, "test data", test, log_debug)
     if os.path.exists(f'{output_dir}/{dsname}.pkl'):
         with open(f'{output_dir}/{dsname}.pkl','rb') as f:
             out_dict = pickle.load(f)
@@ -74,11 +78,13 @@ for dsname,data in datasets.items():
             hypers = list(grid_iter(model_hypers[model]))
             print(f"hypers: {hypers}")
         parallel = True if is_gpt(model) else False
-        print(f"parallel: {parallel}")
+        if log_debug : print(f"parallel: {parallel}")
+        print_debug(my_print, "parallel", parallel, log_debug)
         num_samples = 20 if is_gpt(model) else 100
-        print(f"num_samples: {num_samples}")
+        print_debug(my_print, "num_samples", num_samples, log_debug)
         try:
-            preds = get_autotuned_predictions_data_2(train, test, hypers, num_samples, model_predict_fns[model], verbose=False, parallel=parallel)
+            preds = get_autotuned_predictions_data_2(train, test, hypers, num_samples, model_predict_fns[model], verbose=False, parallel=parallel, log_debug=log_debug)
+            print_debug(my_print, "preds", preds, log_debug)
             out_dict[model] = preds
         except Exception as e:
             print(f"Failed {dsname} {model}")

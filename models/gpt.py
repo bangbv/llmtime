@@ -4,6 +4,8 @@ import tiktoken
 import numpy as np
 from jax import grad,vmap
 
+from models.utils import print_debug, my_print
+
 
 def tokenize_fn(str, model):
     """
@@ -37,8 +39,8 @@ def get_allowed_ids(strs, model):
         ids.extend(id)
     return ids
 
-def gpt_completion_fn(model, input_str, steps, settings, num_samples, temp):
-    print(f"gpt_completion_fn: model: {model}")
+def gpt_completion_fn(model, input_str, steps, settings, num_samples, temp, log_debug=False):
+    print_debug(my_print, "gpt_completion_fn: model:", model, log_debug)
     """
     Generate text completions from GPT using OpenAI's API.
 
@@ -53,7 +55,10 @@ def gpt_completion_fn(model, input_str, steps, settings, num_samples, temp):
     Returns:
         list of str: List of generated samples.
     """
+    print_debug(my_print, "gpt_completion_fn: input_str:", input_str, log_debug)
     avg_tokens_per_step = len(tokenize_fn(input_str, model)) / len(input_str.split(settings.time_sep))
+    print_debug(my_print, "gpt_completion_fn: avg_tokens_per_step:", avg_tokens_per_step, log_debug)
+    print_debug(my_print, "gpt_completion_fn: tokenize:", tokenize_fn(input_str, model), log_debug)
     # define logit bias to prevent GPT-3 from producing unwanted tokens
     logit_bias = {}
     allowed_tokens = [settings.bit_sep + str(i) for i in range(settings.base)] 
@@ -75,6 +80,7 @@ def gpt_completion_fn(model, input_str, steps, settings, num_samples, temp):
             logit_bias=logit_bias,
             n=num_samples,
         )
+        print_debug(my_print, "gpt_completion_fn: response", response, log_debug)
         return [choice.message.content for choice in response.choices]
     else:
         response = openai.Completion.create(
