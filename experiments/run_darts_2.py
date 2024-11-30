@@ -55,7 +55,7 @@ os.makedirs(output_dir, exist_ok=True)
 
 datasets = get_datasets_2(3, 0.1)
 for dsname,data in datasets.items():
-    log_debug = True
+    log_debug = False
     train, test = data
     print_debug(my_print, "train size", len(train), log_debug)
     print_debug(my_print, "train data", train, log_debug)

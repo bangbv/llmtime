@@ -124,7 +124,7 @@ def handle_prediction(pred, expected_length, strict=False):
 
 
 def handle_prediction_2(pred, expected_length, strict=False, log_debug = False):
-    print(f"handle_prediction pred: {pred}, expected_length: {expected_length}")
+    print_debug(my_print, f"generate_predictions_2 pred:", pred, log_debug)
     """
     Process the output from LLM after deserialization, which may be too long or too short, or None if deserialization failed on the first prediction step.
 
