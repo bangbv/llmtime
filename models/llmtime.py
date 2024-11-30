@@ -6,7 +6,7 @@ import pandas as pd
 from dataclasses import dataclass
 from models.llms import completion_fns, nll_fns, tokenization_fns, context_lengths
 from models.utils import print_debug, my_print
-
+import models.fourier_transforms as ft
 STEP_MULTIPLIER = 1.2
 
 @dataclass
@@ -265,6 +265,10 @@ def generate_predictions_2(
     # remap the completion to the prediction value
     preds = [[completion_to_pred(completion, scaler.inv_transform) for completion in completions] for
              completions, scaler in zip(completions_list, scalers)]
+    print_debug(my_print, f"generate_predictions_2 preds:", preds, log_debug)
+    # invert the fourier transform
+    preds = ft.inverse_fourier_transform(preds)
+    print_debug(my_print, f"generate_predictions_2 preds after invert:", preds, log_debug)
     return preds, completions_list, input_strs
 
 
@@ -319,7 +323,9 @@ def get_llmtime_predictions_data_2(train, test, model, settings, num_samples=10,
     print(f"scalers: {scalers}")
     # transform input_arrs
     input_arrs = [train[i].values for i in range(len(train))]
-    print_debug(my_print, "input_arrs", input_arrs, log_debug)
+    # fourier transform
+    input_arrs = ft.fourier_transform(input_arrs)
+
     transformed_input_arrs = np.array(
         [scaler.transform(input_array) for input_array, scaler in zip(input_arrs, scalers)])
     print_debug(my_print, "transformed_input_arrs", transformed_input_arrs, log_debug)
@@ -332,12 +338,14 @@ def get_llmtime_predictions_data_2(train, test, model, settings, num_samples=10,
           zip(input_arrs, input_strs)])
     print_debug(my_print, "truncated input_arrs", input_arrs, log_debug)
     print_debug(my_print, "truncated input_strs", input_strs, log_debug)
+
     steps = test_len
     samples = None
     medians = None
     completions_list = None
     if num_samples > 0:
         print_debug(my_print, "input_strs before predict", input_strs, log_debug)
+        print_debug(my_print, "get_llmtime_predictions_data_2 input_arrs", input_strs, log_debug)
         preds, completions_list, input_strs = generate_predictions_2(completion_fn, input_strs, steps, settings, scalers,
                                                                    num_samples=num_samples, temp=temp,
                                                                    parallel=parallel, log_debug = log_debug,**kwargs)
