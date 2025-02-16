@@ -1,6 +1,7 @@
 from functools import partial
 import numpy as np
 from dataclasses import dataclass
+from models.utils import print_debug, my_print
 
 def vec_num2repr(val, base, prec, max_val):
     """
@@ -157,6 +158,8 @@ def serialize_arr(arr, settings: SerializerSettings):
     return bit_str
 
 def deserialize_str(bit_str, settings: SerializerSettings, ignore_last=False, steps=None):
+    log_debug = False
+    print_debug(my_print, f"serialize:deserialize_str:bit_str:", bit_str, log_debug)
     """
     Deserialize a string into an array of numbers (a time series) based on the provided settings.
 
@@ -173,6 +176,7 @@ def deserialize_str(bit_str, settings: SerializerSettings, ignore_last=False, st
     # ignore_last is for ignoring the last time step in the prediction, which is often a partially generated due to token limit
     orig_bitstring = bit_str
     bit_strs = bit_str.split(settings.time_sep)
+    print_debug(my_print, f"serialize:deserialize_str:bit_strs:", bit_strs, log_debug)
     # remove empty strings
     bit_strs = [a for a in bit_strs if len(a) > 0]
     if ignore_last:
@@ -220,7 +224,9 @@ def deserialize_str(bit_str, settings: SerializerSettings, ignore_last=False, st
         max_len = max([len(d) for d in digits_arr])
         for i in range(len(digits_arr)):
             digits_arr[i] = [0]*(max_len-len(digits_arr[i])) + digits_arr[i]
-        return vrepr2num(np.array(sign_arr), np.array(digits_arr))
+        final_result = vrepr2num(np.array(sign_arr), np.array(digits_arr))
+        print_debug(my_print, f"serialize:deserialize_str:final_result:", final_result, log_debug)
+        return final_result
     else:
         # errored at first step
         return None
