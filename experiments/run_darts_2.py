@@ -11,7 +11,7 @@ from models.utils import grid_iter
 from models.utils import print_debug, my_print
 from models.gaussian_process import get_gp_predictions_data
 from models.darts import get_TCN_predictions_data, get_NHITS_predictions_data, get_NBEATS_predictions_data
-from models.llmtime import get_llmtime_predictions_data, get_llmtime_predictions_data_2
+from models.llmtime import get_llmtime_predictions_data, get_llmtime_ft_predictions_data
 from models.darts import get_arima_predictions_data
 import openai
 openai.api_key = os.environ['OPENAI_API_KEY']
@@ -43,7 +43,7 @@ model_hypers = {
 # Specify the function to get predictions for each model
 model_predict_fns = {
     'llama-7b': get_llmtime_predictions_data,
-    'gpt-4': get_llmtime_predictions_data_2,
+    'gpt-4': get_llmtime_ft_predictions_data,
 }
 
 def is_gpt(model):
@@ -53,22 +53,26 @@ def is_gpt(model):
 output_dir = 'outputs/darts'
 os.makedirs(output_dir, exist_ok=True)
 
-datasets = get_datasets_2(3, 0.1)
+
+datasets = get_datasets_2()
+print(f"datasets: {len(datasets)}")
+datasets.items()
 for dsname,data in datasets.items():
-    log_debug = False
+    log_debug = True
     train, test = data
     print_debug(my_print, "train size", len(train), log_debug)
+    print_debug(my_print, "train type", type(train), log_debug)
     print_debug(my_print, "train data", train, log_debug)
     print_debug(my_print, "test size", len(test), log_debug)
     print_debug(my_print, "test data", test, log_debug)
-    if os.path.exists(f'{output_dir}/{dsname}.pkl'):
-        with open(f'{output_dir}/{dsname}.pkl','rb') as f:
-            out_dict = pickle.load(f)
-    else:
-        out_dict = {}
+    is_load_cache = False
+    out_dict = {}
+    if is_load_cache:
+        if os.path.exists(f'{output_dir}/{dsname}.pkl'):
+            with open(f'{output_dir}/{dsname}.pkl','rb') as f:
+                out_dict = pickle.load(f)
     
     # N-HiTS, TCN and N-BEATS require training and can be slow. Skip them if you want quick results.
-    
     for model in ['gpt-4']:
         if model in out_dict:
             print(f"Skipping {dsname} {model}")
@@ -80,11 +84,12 @@ for dsname,data in datasets.items():
         parallel = True if is_gpt(model) else False
         if log_debug : print(f"parallel: {parallel}")
         print_debug(my_print, "parallel", parallel, log_debug)
+        # num_samples = 20 if is_gpt(model) else 100
         num_samples = 20 if is_gpt(model) else 100
         print_debug(my_print, "num_samples", num_samples, log_debug)
         try:
             preds = get_autotuned_predictions_data_2(train, test, hypers, num_samples, model_predict_fns[model], verbose=False, parallel=parallel, log_debug=log_debug)
-            print_debug(my_print, "preds", preds, log_debug)
+            print_debug(my_print, "run_darts:result", preds, True)
             out_dict[model] = preds
         except Exception as e:
             print(f"Failed {dsname} {model}")
