@@ -19,7 +19,10 @@ def tokenize_fn(str, model):
         list of int: List of corresponding token IDs.
     """
     encoding = tiktoken.encoding_for_model(model)
-    return encoding.encode(str)
+    embedding_result = encoding.encode(str)
+    # print(f"tokenize_fn: input str: {str}")
+    # print(f"tokenize_fn: embedding_result: {embedding_result}")
+    return embedding_result
 
 def get_allowed_ids(strs, model):
     """
@@ -40,7 +43,8 @@ def get_allowed_ids(strs, model):
     return ids
 
 def gpt_completion_fn(model, input_str, steps, settings, num_samples, temp, log_debug=False):
-    print_debug(my_print, "gpt_completion_fn: model:", model, log_debug)
+    log_debug = True
+    print_debug(my_print, "gpt:gpt_completion_fn: model:", model, log_debug)
     """
     Generate text completions from GPT using OpenAI's API.
 
@@ -55,15 +59,17 @@ def gpt_completion_fn(model, input_str, steps, settings, num_samples, temp, log_
     Returns:
         list of str: List of generated samples.
     """
-    print_debug(my_print, "gpt_completion_fn: input_str:", input_str, log_debug)
+    print_debug(my_print, "gpt:gpt_completion_fn: input_str:", input_str, log_debug)
     avg_tokens_per_step = len(tokenize_fn(input_str, model)) / len(input_str.split(settings.time_sep))
-    print_debug(my_print, "gpt_completion_fn: avg_tokens_per_step:", avg_tokens_per_step, log_debug)
-    print_debug(my_print, "gpt_completion_fn: tokenize:", tokenize_fn(input_str, model), log_debug)
+    max_tokens = int(avg_tokens_per_step * steps)
+    print_debug(my_print, "gpt:gpt_completion_fn: max_tokens:", max_tokens, log_debug)
+    print_debug(my_print, "gpt:gpt_completion_fn: tokenize:", tokenize_fn(input_str, model), log_debug)
     # define logit bias to prevent GPT-3 from producing unwanted tokens
     logit_bias = {}
     allowed_tokens = [settings.bit_sep + str(i) for i in range(settings.base)] 
     allowed_tokens += [settings.time_sep, settings.plus_sign, settings.minus_sign]
     allowed_tokens = [t for t in allowed_tokens if len(t) > 0] # remove empty tokens like an implicit plus sign
+    # exit()
     if (model not in ['gpt-3.5-turbo','gpt-4','gpt-4-1106-preview']): # logit bias not supported for chat models
         logit_bias = {id: 30 for id in get_allowed_ids(allowed_tokens, model)}
     if model in ['gpt-3.5-turbo','gpt-4','gpt-4-1106-preview']:
@@ -75,13 +81,15 @@ def gpt_completion_fn(model, input_str, steps, settings, num_samples, temp, log_
                     {"role": "system", "content": chatgpt_sys_message},
                     {"role": "user", "content": extra_input+input_str+settings.time_sep}
                 ],
-            max_tokens=int(avg_tokens_per_step*steps), 
+            max_tokens=max_tokens,
             temperature=temp,
             logit_bias=logit_bias,
             n=num_samples,
         )
-        print_debug(my_print, "gpt_completion_fn: response", response, log_debug)
-        return [choice.message.content for choice in response.choices]
+        result = [choice.message.content for choice in response.choices]
+        print_debug(my_print, "gpt:gpt_completion_fn: response", response, True)
+        print_debug(my_print, "gpt:gpt_completion_fn:result", result, True)
+        return result
     else:
         response = openai.Completion.create(
             model=model,
@@ -92,7 +100,72 @@ def gpt_completion_fn(model, input_str, steps, settings, num_samples, temp, log_
             n=num_samples
         )
         return [choice.text for choice in response.choices]
-    
+
+def gpt_ft_completion_fn(model, input_str, steps, settings, num_samples, temp, log_debug=False):
+    log_debug = True
+    print_debug(my_print, "gpt:gpt_completion_fn: model:", model, log_debug)
+    """
+    Generate text completions from GPT using OpenAI's API.
+
+    Args:
+        model (str): Name of the GPT-3 model to use.
+        input_str (str): Serialized input time series data.
+        steps (int): Number of time steps to predict.
+        settings (SerializerSettings): Serialization settings.
+        num_samples (int): Number of completions to generate.
+        temp (float): Temperature for sampling.
+
+    Returns:
+        list of str: List of generated samples.
+    """
+    print_debug(my_print, "gpt:gpt_completion_fn: input_str:", input_str, log_debug)
+    avg_tokens_per_step = len(tokenize_fn(input_str, model)) / len(input_str.split(settings.time_sep))
+    max_tokens = int(avg_tokens_per_step * steps)
+    print_debug(my_print, "gpt:gpt_completion_fn: max_tokens:", max_tokens, log_debug)
+    print_debug(my_print, "gpt:gpt_completion_fn: tokenize:", tokenize_fn(input_str, model), log_debug)
+    # define logit bias to prevent GPT-3 from producing unwanted tokens
+    logit_bias = {}
+    allowed_tokens = [settings.bit_sep + str(i) for i in range(settings.base)]
+    allowed_tokens += [settings.time_sep, settings.plus_sign, settings.minus_sign]
+    allowed_tokens = [t for t in allowed_tokens if len(t) > 0] # remove empty tokens like an implicit plus sign
+    # exit()
+    if (model not in ['gpt-3.5-turbo','gpt-4','gpt-4-1106-preview']): # logit bias not supported for chat models
+        logit_bias = {id: 30 for id in get_allowed_ids(allowed_tokens, model)}
+    if model in ['gpt-3.5-turbo','gpt-4','gpt-4-1106-preview']:
+        chatgpt_sys_message = "You are a helpful assistant that performs time series predictions. The user will provide a sequence and you will predict the remaining sequence. The sequence is represented by decimal strings separated by commas."
+        extra_input = "Please continue the following sequence without producing any additional text. Do not say anything like 'the next terms in the sequence are', just return the numbers. Sequence:\n"
+        print_debug(my_print, "gpt:gpt_ft_completion_fn:input_str",input_str, True)
+        print_debug(my_print, "gpt:gpt_ft_completion_fn:settings.time_sep",settings.time_sep, True)
+        print_debug(my_print, "gpt:gpt_ft_completion_fn:max_tokens", max_tokens, True)
+        print_debug(my_print, "gpt:gpt_ft_completion_fn:temp",temp, True)
+        print_debug(my_print, "gpt:gpt_ft_completion_fn:logit_bias",logit_bias, True)
+        print_debug(my_print, "gpt:gpt_ft_completion_fn:num_samples",num_samples, True)
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=[
+                    {"role": "system", "content": chatgpt_sys_message},
+                    {"role": "user", "content": extra_input+input_str+settings.time_sep}
+                ],
+            max_tokens=max_tokens,
+            temperature=temp,
+            logit_bias=logit_bias,
+            n=num_samples,
+        )
+        result = [choice.message.content for choice in response.choices]
+        print_debug(my_print, "gpt:gpt_ft_completion_fn: response.choices", response.choices, True)
+        print_debug(my_print, "gpt:gpt_ft_completion_fn:result", result, True)
+        return result
+    else:
+        response = openai.Completion.create(
+            model=model,
+            prompt=input_str,
+            max_tokens=int(avg_tokens_per_step*steps),
+            temperature=temp,
+            logit_bias=logit_bias,
+            n=num_samples
+        )
+        return [choice.text for choice in response.choices]
+
 def gpt_nll_fn(model, input_arr, target_arr, settings:SerializerSettings, transform, count_seps=True, temp=1):
     """
     Calculate the Negative Log-Likelihood (NLL) per dimension of the target array according to the LLM.
