@@ -5,6 +5,8 @@ from models.utils import grid_iter
 from dataclasses import is_dataclass
 from typing import Any
 
+from models.utils import print_debug, my_print
+
 def make_validation_dataset(train, n_val, val_length):
     """Partition the training set into training and validation sets.
 
@@ -124,6 +126,7 @@ def get_autotuned_predictions_data_2(train, test, hypers, num_samples, get_predi
         best_val_nll = float('inf')
     print(f'Sampling with best hyper... {best_hyper} \n with NLL {best_val_nll:3f}')
     out = get_predictions_fn(train, test, **best_hyper, num_samples=num_samples, n_train=n_train, parallel=parallel, log_debug=log_debug)
+    print_debug(my_print, "get_autotuned_predictions_data_2: out:", out, False)
     out['best_hyper'] = convert_to_dict(best_hyper)
     return out
 
