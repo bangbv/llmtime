@@ -1,5 +1,5 @@
 from tqdm import tqdm
-from data.serialize import serialize_arr, deserialize_str, SerializerSettings
+from data.serialize import serialize_arr, SerializerSettings, deserialize_str
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pandas as pd
@@ -36,7 +36,10 @@ def get_scaler(history, alpha=0.95, beta=0.3, basic=False, log_debug = False):
     Returns:
         Scaler: Configured scaler object.
     """
-    print(f"train.values history: {history}")
+    print(f"get_scaler:history:{history}")
+    print(f"get_scaler:alpha:{alpha}")
+    print(f"get_scaler:beta:{beta}")
+    print(f"get_scaler:basic:{basic}")
     history = history[~np.isnan(history)]
     if basic:
         q = np.maximum(np.quantile(np.abs(history), alpha),.01)
@@ -124,7 +127,38 @@ def handle_prediction(pred, expected_length, strict=False):
 
 
 def handle_prediction_2(pred, expected_length, strict=False, log_debug = False):
+    print(f"llmtime:handle_prediction_2 pred: {pred}")
+    log_debug = False
     print_debug(my_print, f"generate_predictions_2 pred:", pred, log_debug)
+    """
+    Process the output from LLM after deserialization, which may be too long or too short, or None if deserialization failed on the first prediction step.
+
+    Args:
+        pred (array-like or None): The predicted values. None indicates deserialization failed.
+        expected_length (int): Expected length of the prediction.
+        strict (bool, optional): If True, returns None for invalid predictions. Defaults to False.
+
+    Returns:
+        array-like: Processed prediction.
+    """
+    if pred is None:
+        return None
+    else:
+        if len(pred) < expected_length:
+            if strict:
+                print(f'Warning: Prediction too short {len(pred)} < {expected_length}, returning None')
+                return None
+            else:
+                print(f'Warning: Prediction too short {len(pred)} < {expected_length}, padded with last value')
+                return np.concatenate([pred, np.full(expected_length - len(pred), pred[-1])])
+        else:
+            return pred[:expected_length]
+
+
+def handle_ft_prediction(pred, expected_length, strict=False, log_debug = False):
+    print(f"llmtime:handle_ft_prediction:pred: {pred}, expected_length: {expected_length}")
+    log_debug = False
+    print_debug(my_print, f"llmtime:handle_ft_prediction: pred:", pred, log_debug)
     """
     Process the output from LLM after deserialization, which may be too long or too short, or None if deserialization failed on the first prediction step.
 
@@ -218,7 +252,9 @@ def generate_predictions_2(
         log_debug = False,
         **kwargs
 ):
-    print_debug(my_print, f"generate_predictions input_strs:", input_strs, log_debug)
+    print(f"llmtime:generate_predictions_2:input_strs: {input_strs}, steps: {steps}")
+    log_debug = False
+    print_debug(my_print, f"llmtime:generate_predictions:input_strs:", input_strs, log_debug)
     """
     Generate and process text completions from a language model for input time series.
 
@@ -253,23 +289,93 @@ def generate_predictions_2(
         completions_list = [complete(input_str) for input_str in tqdm(input_strs)]
 
     def completion_to_pred(completion, inv_transform):
+        print_debug(my_print, f"llmtime:generate_predictions_2:completion_to_pred:completion:", completion, True)
+        print(f"llmtime:generate_predictions_2:completion_to_pred:type_completion: {type(completion)}")
         pred = handle_prediction_2(deserialize_str(completion, settings, ignore_last=False, steps=steps),
                                  expected_length=steps, strict=strict_handling, log_debug=log_debug)
-        print_debug(my_print, f"generate_predictions_2 completion:", completion, log_debug)
-        print_debug(my_print, f"generate_predictions_2 pred:", pred, log_debug)
+        print_debug(my_print, f"generate_predictions_2:completion_to_pred:pred:", pred, log_debug)
         if pred is not None:
             return inv_transform(pred)
         else:
             return None
 
+    print_debug(my_print, f"llmtime:generate_predictions_2:completions_list:", completions_list, True)
     # remap the completion to the prediction value
     preds = [[completion_to_pred(completion, scaler.inv_transform) for completion in completions] for
              completions, scaler in zip(completions_list, scalers)]
-    print_debug(my_print, f"generate_predictions_2 preds:", preds, log_debug)
-    # invert the fourier transform
-    preds = ft.inverse_fourier_transform(preds)
-    print_debug(my_print, f"generate_predictions_2 preds after invert:", preds, log_debug)
+    print_debug(my_print, f"llmtime:generate_predictions_2:preds:", preds, True)
     return preds, completions_list, input_strs
+
+
+def generate_ft_predictions(
+        completion_fn,
+        ft_input_strs,
+        steps,
+        settings: SerializerSettings,
+        scalers: None,
+        num_samples=1,
+        temp=0.7,
+        parallel=True,
+        strict_handling=False,
+        max_concurrent=10,
+        log_debug = False,
+        **kwargs
+):
+    print(f"llmtime:generate_ft_predictions:ft_input_strs: {ft_input_strs}, steps: {steps}")
+    log_debug = False
+    print_debug(my_print, f"llmtime:generate_ft_predictions:ft_input_strs:", ft_input_strs, log_debug)
+    """
+    Generate and process text completions from a language model for input time series.
+
+    Args:
+        completion_fn (callable): Function to obtain text completions from the LLM.
+        input_strs (list of array-like): List of input time series.
+        steps (int): Number of steps to predict.
+        settings (SerializerSettings): Settings for serialization.
+        scalers (list of Scaler, optional): List of Scaler objects. Defaults to None, meaning no scaling is applied.
+        num_samples (int, optional): Number of samples to return. Defaults to 1.
+        temp (float, optional): Temperature for sampling. Defaults to 0.7.
+        parallel (bool, optional): If True, run completions in parallel. Defaults to True.
+        strict_handling (bool, optional): If True, return None for predictions that don't have exactly the right format or expected length. Defaults to False.
+        max_concurrent (int, optional): Maximum number of concurrent completions. Defaults to 50.
+        **kwargs: Additional keyword arguments.
+
+    Returns:
+        tuple: Tuple containing:
+            - preds (list of lists): Numerical predictions.
+            - completions_list (list of lists): Raw text completions.
+            - input_strs (list of str): Serialized input strings.
+    """
+
+    ft_completions_list = []
+    complete = lambda x: completion_fn(input_str=x, steps=steps * STEP_MULTIPLIER, settings=settings,
+                                       num_samples=num_samples, temp=temp, log_debug = log_debug)
+    if parallel and len(ft_input_strs) > 1:
+        print('Running completions in parallel for each input')
+        with ThreadPoolExecutor(min(max_concurrent, len(ft_input_strs))) as p:
+            ft_completions_list = list(tqdm(p.map(complete, ft_input_strs), total=len(ft_input_strs)))
+    else:
+        ft_completions_list = [complete(ft_input_str) for ft_input_str in tqdm(ft_input_strs)]
+
+    def completion_to_pred(ft_completion):
+        print_debug(my_print, f"llmtime:generate_ft_predictions:completion_to_pred:ft_completion:", ft_completion, True)
+        print(f"llmtime:generate_ft_predictions:completion_to_pred:type_ft_completion: {type(ft_completion)}")
+        print_debug(my_print, f"llmtime:generate_ft_predictions:completion_to_pred:steps:", steps, True)
+        deserialize_arr = deserialize_str(ft_completion, settings, ignore_last=False, steps=steps)
+        print_debug(my_print, f"llmtime:generate_ft_predictions:completion_to_pred:deserialize_arr:", deserialize_arr, True)
+        ft_pred = handle_ft_prediction(deserialize_arr,expected_length=steps, strict=strict_handling, log_debug=log_debug)
+        print_debug(my_print, f"generate_ft_predictions:completion_to_pred:ft_pred:", ft_pred, True)
+        if ft_pred is not None:
+            return ft.inverse_fourier_transform(ft_pred)
+        else:
+            return None
+
+    print_debug(my_print, f"llmtime:generate_ft_predictions:ft_completions_list:", ft_completions_list, True)
+    # remap the completion to the prediction value
+    ft_preds = [[completion_to_pred(ft_completion) for ft_completion in ft_completions] for
+             ft_completions, scaler in zip(ft_completions_list, scalers)]
+    print_debug(my_print, f"llmtime:generate_ft_predictions:ft_preds:", ft_preds, True)
+    return ft_preds, ft_completions_list, ft_input_strs
 
 
 def get_llmtime_predictions_data_2(train, test, model, settings, num_samples=10, temp=0.7, alpha=0.95, beta=0.3,
@@ -297,7 +403,7 @@ def get_llmtime_predictions_data_2(train, test, model, settings, num_samples=10,
     """
 
     assert model in completion_fns, f'Invalid model {model}, must be one of {list(completion_fns.keys())}'
-    print(f"completion_fns keys: {completion_fns.keys()}")
+    # print(f"completion_fns keys: {completion_fns.keys()}")
     completion_fn = completion_fns[model]
     nll_fn = nll_fns[model] if model in nll_fns else None
 
@@ -320,24 +426,34 @@ def get_llmtime_predictions_data_2(train, test, model, settings, num_samples=10,
 
     # Create a unique scaler for each series
     scalers = [get_scaler(train[i].values, alpha=alpha, beta=beta, basic=basic, log_debug = log_debug) for i in range(len(train))]
-    print(f"scalers: {scalers}")
+    # print(f"scalers: {scalers}")
     # transform input_arrs
     input_arrs = [train[i].values for i in range(len(train))]
-    # fourier transform
-    input_arrs = ft.fourier_transform(input_arrs)
+    ft_input_arrs = input_arrs
+    print_debug(my_print, "input_arrs before transform", input_arrs, log_debug)
 
     transformed_input_arrs = np.array(
         [scaler.transform(input_array) for input_array, scaler in zip(input_arrs, scalers)])
-    print_debug(my_print, "transformed_input_arrs", transformed_input_arrs, log_debug)
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:transformed_input_arrs", transformed_input_arrs, log_debug)
+    # fourier transform
+    ft_transformed_input_arrs = ft.fourier_transform(ft_input_arrs)
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:ft_transformed_input_arrs", ft_transformed_input_arrs, log_debug)
     # serialize input_arrs
     input_strs = [serialize_arr(scaled_input_arr, settings) for scaled_input_arr in transformed_input_arrs]
-    print_debug(my_print, "serialized input_strs", input_strs, log_debug)
+    ft_input_strs = [serialize_arr(scaled_input_arr, settings) for scaled_input_arr in ft_transformed_input_arrs]
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:serialized_input_strs", input_strs, log_debug)
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:ft_serialized_input_strs", ft_input_strs, log_debug)
     # Truncate input_arrs to fit the maximum context length
     input_arrs, input_strs = zip(
         *[truncate_input(input_array, input_str, settings, model, test_len) for input_array, input_str in
           zip(input_arrs, input_strs)])
-    print_debug(my_print, "truncated input_arrs", input_arrs, log_debug)
-    print_debug(my_print, "truncated input_strs", input_strs, log_debug)
+
+    ft_input_arrs, ft_input_strs = zip(
+        *[truncate_input(ft_input_array, ft_input_str, settings, model, test_len) for ft_input_array, ft_input_str in
+          zip(ft_input_arrs, ft_input_strs)])
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:truncated input_strs", input_strs, log_debug)
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:truncated ft_input_strs", ft_input_strs, log_debug)
+
 
     steps = test_len
     samples = None
@@ -345,14 +461,124 @@ def get_llmtime_predictions_data_2(train, test, model, settings, num_samples=10,
     completions_list = None
     if num_samples > 0:
         print_debug(my_print, "input_strs before predict", input_strs, log_debug)
-        print_debug(my_print, "get_llmtime_predictions_data_2 input_arrs", input_strs, log_debug)
+        print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:input_arrs", input_strs, log_debug)
         preds, completions_list, input_strs = generate_predictions_2(completion_fn, input_strs, steps, settings, scalers,
                                                                    num_samples=num_samples, temp=temp,
                                                                    parallel=parallel, log_debug = log_debug,**kwargs)
-        print_debug(my_print, "preds", preds, log_debug)
-        print_debug(my_print, "completions_list", completions_list, log_debug)
-        print_debug(my_print, "input_strs", input_strs, log_debug)
+        print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:preds", preds, True)
+        ft_preds, ft_completions_list, ft_input_strs = generate_ft_predictions(completion_fn, ft_input_strs, steps, settings, scalers,
+                                                                   num_samples=num_samples, temp=temp,
+                                                                   parallel=parallel, log_debug = log_debug,**kwargs)
+        print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:ft_preds", ft_preds, True)
         samples = [pd.DataFrame(preds[i], columns=test[i].index) for i in range(len(preds))]
+        medians = [sample.median(axis=0) for sample in samples]
+        samples = samples if len(samples) > 1 else samples[0]
+        medians = medians if len(medians) > 1 else medians[0]
+    out_dict = {
+        'samples': samples,
+        'median': medians,
+        'info': {
+            'Method': model,
+        },
+        'completions_list': completions_list,
+        'input_strs': input_strs,
+    }
+    # Compute NLL/D on the true test series conditioned on the (truncated) input series
+    if nll_fn is not None:
+        BPDs = [nll_fn(input_arr=input_arrs[i], target_arr=test[i].values, settings=settings,
+                       transform=scalers[i].transform, count_seps=True, temp=temp) for i in range(len(train))]
+        out_dict['NLL/D'] = np.mean(BPDs)
+    return out_dict
+
+
+def get_llmtime_ft_predictions_data(train, test, model, settings, num_samples=10, temp=0.7, alpha=0.95, beta=0.3,
+                                 basic=False, parallel=True, log_debug=False ,**kwargs):
+    print(f"get_llmtime_predictions_data: log_debug {log_debug}")
+    """
+    Obtain forecasts from an LLM based on training series (history) and evaluate likelihood on test series (true future).
+    train and test can be either a single time series or a list of time series.
+
+    Args:
+        train (array-like or list of array-like): Training time series data (history).
+        test (array-like or list of array-like): Test time series data (true future).
+        model (str): Name of the LLM model to use. Must have a corresponding entry in completion_fns.
+        settings (SerializerSettings or dict): Serialization settings.
+        num_samples (int, optional): Number of samples to return. Defaults to 10.
+        temp (float, optional): Temperature for sampling. Defaults to 0.7.
+        alpha (float, optional): Scaling parameter. Defaults to 0.95.
+        beta (float, optional): Shift parameter. Defaults to 0.3.
+        basic (bool, optional): If True, use the basic version of data scaling. Defaults to False.
+        parallel (bool, optional): If True, run predictions in parallel. Defaults to True.
+        **kwargs: Additional keyword arguments.
+
+    Returns:
+        dict: Dictionary containing predictions, samples, median, NLL/D averaged over each series, and other related information.
+    """
+
+    assert model in completion_fns, f'Invalid model {model}, must be one of {list(completion_fns.keys())}'
+    # print(f"completion_fns keys: {completion_fns.keys()}")
+    completion_fn = completion_fns[model]
+    nll_fn = nll_fns[model] if model in nll_fns else None
+
+    if isinstance(settings, dict):
+        settings = SerializerSettings(**settings)
+    if not isinstance(train, list):
+        # Assume single train/test case
+        train = [train]
+        test = [test]
+
+    for i in range(len(train)):
+        if not isinstance(train[i], pd.Series):
+            train[i] = pd.Series(train[i], index=pd.RangeIndex(len(train[i])))
+            print(f"train[{i}]: {train[i]}")
+            test[i] = pd.Series(test[i], index=pd.RangeIndex(len(train[i]), len(test[i]) + len(train[i])))
+            print(f"test[{i}]: {test[i]}")
+
+    test_len = len(test[0])
+    assert all(len(t) == test_len for t in test), f'All test series must have same length, got {[len(t) for t in test]}'
+
+    # Create a unique scaler for each series
+    scalers = [get_scaler(train[i].values, alpha=alpha, beta=beta, basic=basic, log_debug = log_debug) for i in range(len(train))]
+    # print(f"scalers: {scalers}")
+    # transform input_arrs
+    input_arrs = [train[i].values for i in range(len(train))]
+    ft_input_arrs = input_arrs
+    print_debug(my_print, "input_arrs before transform", input_arrs, log_debug)
+
+    transformed_input_arrs = np.array(
+        [scaler.transform(input_array) for input_array, scaler in zip(input_arrs, scalers)])
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:transformed_input_arrs", transformed_input_arrs, log_debug)
+    # fourier transform
+    ft_transformed_input_arrs = ft.fourier_transform(ft_input_arrs)
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:ft_transformed_input_arrs", ft_transformed_input_arrs, log_debug)
+    # serialize input_arrs
+    input_strs = [serialize_arr(scaled_input_arr, settings) for scaled_input_arr in transformed_input_arrs]
+    ft_input_strs = [serialize_arr(scaled_input_arr, settings) for scaled_input_arr in ft_transformed_input_arrs]
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:serialized_input_strs", input_strs, log_debug)
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:ft_serialized_input_strs", ft_input_strs, log_debug)
+    # Truncate input_arrs to fit the maximum context length
+    input_arrs, input_strs = zip(
+        *[truncate_input(input_array, input_str, settings, model, test_len) for input_array, input_str in
+          zip(input_arrs, input_strs)])
+
+    ft_input_arrs, ft_input_strs = zip(
+        *[truncate_input(ft_input_array, ft_input_str, settings, model, test_len) for ft_input_array, ft_input_str in
+          zip(ft_input_arrs, ft_input_strs)])
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:truncated input_strs", input_strs, log_debug)
+    print_debug(my_print, "llmtime:get_llmtime_predictions_data_2:truncated ft_input_strs", ft_input_strs, log_debug)
+
+
+    steps = test_len
+    samples = None
+    medians = None
+    completions_list = None
+    if num_samples > 0:
+        print_debug(my_print, "input_strs before predict", input_strs, log_debug)
+        ft_preds, ft_completions_list, ft_input_strs = generate_ft_predictions(completion_fn, ft_input_strs, steps, settings, scalers,
+                                                                   num_samples=num_samples, temp=temp,
+                                                                   parallel=parallel, log_debug = log_debug,**kwargs)
+        print_debug(my_print, "llmtime:get_llmtime_ft_predictions_data:ft_preds", ft_preds, True)
+        samples = [pd.DataFrame(ft_preds[i], columns=test[i].index) for i in range(len(ft_preds))]
         medians = [sample.median(axis=0) for sample in samples]
         samples = samples if len(samples) > 1 else samples[0]
         medians = medians if len(medians) > 1 else medians[0]
