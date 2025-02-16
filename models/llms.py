@@ -1,5 +1,5 @@
 from functools import partial
-from models.gpt import gpt_completion_fn, gpt_nll_fn
+from models.gpt import gpt_completion_fn, gpt_nll_fn, gpt_ft_completion_fn
 from models.gpt import tokenize_fn as gpt_tokenize_fn
 from models.llama import llama_completion_fn, llama_nll_fn
 from models.llama import tokenize_fn as llama_tokenize_fn
@@ -27,7 +27,8 @@ from models.llama import tokenize_fn as llama_tokenize_fn
 #   - list: Sampled completion strings from the model.
 completion_fns = {
     'text-davinci-003': partial(gpt_completion_fn, model='text-davinci-003'),
-    'gpt-4': partial(gpt_completion_fn, model='gpt-4'),
+    # 'gpt-4': partial(gpt_completion_fn, model='gpt-4'),
+    'gpt-4': partial(gpt_ft_completion_fn, model='gpt-4'),
     'gpt-4-1106-preview':partial(gpt_completion_fn, model='gpt-4-1106-preview'),
     'gpt-3.5-turbo-instruct': partial(gpt_completion_fn, model='gpt-3.5-turbo-instruct'),
     # 'mistral': partial(mistral_completion_fn, model='mistral'),
